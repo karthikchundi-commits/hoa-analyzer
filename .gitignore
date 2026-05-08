@@ -1,0 +1,5 @@
+.env
+paid_sessions.json
+deps/
+__pycache__/
+*.pyc
