@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 from analyzer import extract_text, analyze_hoa
-from payments import is_paid, save_paid_session, create_checkout_session
+from payments import is_paid, verify_checkout_session, create_checkout_session
 
 load_dotenv()
 
@@ -13,13 +13,17 @@ st.set_page_config(
 )
 
 # ── Handle Stripe return ───────────────────────────────────────────────────
+# Verify the session_id directly with Stripe - never trust a client-supplied
+# "paid=true" flag, since that could be typed into the URL by anyone.
 params = st.query_params
-if params.get("paid") == "true" and params.get("email"):
-    email = params.get("email")
-    save_paid_session(email)
+if params.get("session_id"):
+    verified_email = verify_checkout_session(params.get("session_id"))
     st.query_params.clear()
-    st.session_state["paid_email"] = email
-    st.success(f"Payment confirmed for {email}. Upload your HOA document below.")
+    if verified_email:
+        st.session_state["paid_email"] = verified_email
+        st.success(f"Payment confirmed for {verified_email}. Upload your HOA document below.")
+    else:
+        st.error("We couldn't confirm this payment. If you were charged, please contact support.")
 
 # ── Header ─────────────────────────────────────────────────────────────────
 st.title("🏠 HOA Analyzer")
