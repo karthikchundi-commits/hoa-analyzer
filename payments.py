@@ -1,32 +1,29 @@
 import stripe
 import os
-import json
-import hashlib
 from dotenv import load_dotenv
-from pathlib import Path
 
 load_dotenv()
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-PAID_SESSIONS_FILE = Path("paid_sessions.json")
-
-def load_paid_sessions():
-    if PAID_SESSIONS_FILE.exists():
-        with open(PAID_SESSIONS_FILE) as f:
-            return json.load(f)
-    return {}
-
-def save_paid_session(email: str):
-    sessions = load_paid_sessions()
-    key = hashlib.sha256(email.lower().strip().encode()).hexdigest()
-    sessions[key] = True
-    with open(PAID_SESSIONS_FILE, "w") as f:
-        json.dump(sessions, f)
 
 def is_paid(email: str) -> bool:
-    sessions = load_paid_sessions()
-    key = hashlib.sha256(email.lower().strip().encode()).hexdigest()
-    return sessions.get(key, False)
+    """Ask Stripe directly whether this email has a completed payment.
+    Stripe is the source of truth - no local state to lose on restart."""
+    result = stripe.checkout.Session.search(
+        query=f"status:'complete' AND customer_details['email']:'{email.lower().strip()}'"
+    )
+    return len(result.data) > 0
+
+
+def verify_checkout_session(session_id: str):
+    """Verify a completed checkout directly with Stripe using the session id
+    Stripe redirected back with - never trust client-supplied email/paid flags.
+    Returns the verified email on success, or None if payment isn't confirmed."""
+    session = stripe.checkout.Session.retrieve(session_id)
+    if session.payment_status == "paid" and session.customer_details:
+        return session.customer_details.email
+    return None
+
 
 def create_checkout_session(email: str, success_url: str, cancel_url: str) -> str:
     session = stripe.checkout.Session.create(
@@ -44,7 +41,7 @@ def create_checkout_session(email: str, success_url: str, cancel_url: str) -> st
         }],
         mode="payment",
         customer_email=email,
-        success_url=success_url + "?paid=true&email=" + email,
+        success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
         cancel_url=cancel_url,
     )
     return session.url
