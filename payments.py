@@ -8,11 +8,16 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 def is_paid(email: str) -> bool:
     """Ask Stripe directly whether this email has a completed payment.
-    Stripe is the source of truth - no local state to lose on restart."""
-    result = stripe.checkout.Session.search(
-        query=f"status:'complete' AND customer_details['email']:'{email.lower().strip()}'"
-    )
-    return len(result.data) > 0
+    Stripe is the source of truth - no local state to lose on restart.
+    Uses list() + manual filtering since the Search API doesn't cover
+    Checkout Sessions."""
+    target = email.lower().strip()
+    sessions = stripe.checkout.Session.list(status="complete", limit=100)
+    for session in sessions.auto_paging_iter():
+        if session.customer_details and session.customer_details.email:
+            if session.customer_details.email.lower().strip() == target:
+                return True
+    return False
 
 
 def verify_checkout_session(session_id: str):
